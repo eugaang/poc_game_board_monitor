@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from .config import ISSUE_CATEGORIES, NEGATIVE_CUES, POSITIVE_CUES, DEFAULT_THRESHOLD, ALPHA
+from konlpy.tag import Okt
 
 def load_data(path: str) -> pd.DataFrame:
     df = pd.read_csv(path)
@@ -13,8 +14,10 @@ def load_data(path: str) -> pd.DataFrame:
     return df
 
 def simple_preprocess(text: str) -> str:
-    # 아주 단순한 정규화(공백 정리 등)
-    return " ".join(str(text).split())
+    okt = Okt()
+    tokens = okt.morphs(text)  # Morpheme analysis
+    cleaned = [t for t in tokens if len(t) > 1]  # Remove noise (short tokens)
+    return " ".join(cleaned)
 
 def rule_based_labels(text: str):
     text = str(text)
@@ -42,13 +45,19 @@ def classify_posts(df: pd.DataFrame) -> pd.DataFrame:
     df["is_issue"] = df["pred_sentiment"].eq("부정") & df["pred_categories"].apply(lambda x: x != ["일반"])
     return df
 
-def ewma_anomaly_detection(df: pd.DataFrame, freq="15min", alpha: float = ALPHA, z_thresh: float = DEFAULT_THRESHOLD):
+def ewma_anomaly_detection(df: pd.DataFrame, freq="15min", alpha: float = ALPHA, z_thresh: float = DEFAULT_THRESHOLD, slope_window=5, slope_thresh=0.1):
     ts = df.set_index("date").sort_index()
     counts = ts["is_issue"].resample(freq).sum().fillna(0).astype(float)
     ewma = counts.ewm(alpha=alpha).mean()
+    
+    # Add gradual increase detection
+    ewma_diff = ewma.diff()
+    rolling_slope = ewma_diff.rolling(window=slope_window).mean()
+    gradual_alert = rolling_slope > slope_thresh
+    
     resid = counts - ewma
     std = resid.rolling(window=max(3, int(1/alpha))).std().bfill().replace(0, resid.std() if resid.std()>0 else 1.0)
     z = resid / std
-    alerts = z.abs() >= z_thresh
-    out = pd.DataFrame({"count": counts, "ewma": ewma, "resid": resid, "zscore": z, "alert": alerts})
+    alerts = (z.abs() >= z_thresh) | gradual_alert
+    out = pd.DataFrame({"count": counts, "ewma": ewma, "resid": resid, "zscore": z, "alert": alerts, "gradual_alert": gradual_alert})
     return out

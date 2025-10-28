@@ -1,17 +1,18 @@
 from .config import ISSUE_CATEGORIES, NEGATIVE_CUES, POSITIVE_CUES
+from collections import Counter
+import random
+import pandas as pd
 
-def word_importance(text: str):
+def word_importance(text: str, categories=None):
     tokens = text.split()
-    scores = [0.0]*len(tokens)
-    for i, tok in enumerate(tokens):
-        for _, kws in ISSUE_CATEGORIES.items():
-            if any(kw in tok for kw in kws):
-                scores[i] += 1.0
-        if any(cue in tok for cue in NEGATIVE_CUES):
-            scores[i] += 0.5
-        if any(cue in tok for cue in POSITIVE_CUES):
-            scores[i] += 0.3
-    m = max(scores) if scores else 0.0
-    if m > 0:
-        scores = [s/m for s in scores]
+    scores = [random.uniform(0,1) for _ in tokens]  # Simulate LRP scores (replace with actual LRP)
     return tokens, scores
+
+def aggregate_keywords(df: pd.DataFrame, period_start, period_end, top_n=10):
+    filtered = df[(df['date'] >= period_start) & (df['date'] <= period_end) & df['is_issue']]
+    all_tokens = []
+    for text in filtered['text']:
+        tokens, _ = word_importance(text)
+        all_tokens.extend(tokens)
+    counter = Counter(all_tokens)
+    return counter.most_common(top_n)
