@@ -1,0 +1,12 @@
+# Ignore Python virtual environment
+poc_game_monitor/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore Mac system files
+.DS_Store
+
+# Ignore other unnecessary files (add more if needed)
