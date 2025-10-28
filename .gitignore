@@ -9,4 +9,8 @@ __pycache__/
 # Ignore Mac system files
 .DS_Store
 
+# Ignore large/binary files
+*.pdf
+data/*_old.csv  # Old data backups
+
 # Ignore other unnecessary files (add more if needed)

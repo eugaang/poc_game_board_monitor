@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from src.pipeline import load_data, classify_posts, ewma_anomaly_detection
-from src.explain import word_importance
+from src.classifier import KoElectraClassifier
+from src.explain import word_importance, aggregate_keywords
 
 st.set_page_config(page_title="Game Board Monitor PoC", layout="wide")
 st.title("🕹️ Game Board Monitor PoC (3.1 ~ 3.4)")
@@ -32,9 +33,11 @@ else:
 st.subheader("① 데이터 미리보기")
 st.dataframe(df.head(10))
 
-st.subheader("② 분류 실행 (규칙 기반)")
-pred_df = classify_posts(df)
-st.dataframe(pred_df[["id","title","pred_categories","pred_sentiment","is_issue","date"]].head(20))
+st.subheader("② 분류 실행 (KoELECTRA 기반)")
+classifier = KoElectraClassifier()
+pred_df = df.copy()  # Initialize pred_df
+pred_df['electra_results'] = pred_df['text'].apply(classifier.classify)
+st.dataframe(pred_df[["id","title","electra_results","date"]].head(20))
 
 st.subheader("③ EWMA 이상치 탐지")
 freq = st.selectbox("집계 주기", ["5min","10min","15min","30min","1H"], index=2)
@@ -51,6 +54,14 @@ ax.legend()
 st.pyplot(fig)
 
 st.write(an.tail(20))
+
+# Add auto-trigger for explanations
+if an['alert'].any():
+    alert_times = an[an['alert']].index
+    st.subheader("④ 자동 LRP 설명 (경보 트리거)")
+    for t in alert_times:
+        keywords = aggregate_keywords(pred_df, t - pd.Timedelta(minutes=15), t)
+        st.write(f"기간 {t}: 상위 키워드 {keywords}")
 
 st.subheader("④ 설명(키워드 가중치 기반)")
 row_ix = st.number_input("설명을 볼 행 index 선택", min_value=0, max_value=len(pred_df)-1, value=0, step=1)
