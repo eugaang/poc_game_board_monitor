@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')  # Streamlit Cloud용 백엔드 설정
 import matplotlib.pyplot as plt
 from src.pipeline import load_data, classify_posts, ewma_anomaly_detection
 from src.explain import word_importance
