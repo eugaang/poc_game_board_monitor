@@ -1,69 +1,179 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 from src.pipeline import load_data, classify_posts, ewma_anomaly_detection
-from src.classifier import KoElectraClassifier
-from src.explain import word_importance, aggregate_keywords
+from src.explain import word_importance
 
+# -----------------------------------
+# Page setup
+# -----------------------------------
 st.set_page_config(page_title="Game Board Monitor PoC", layout="wide")
 st.title("🕹️ Game Board Monitor PoC (3.1 ~ 3.4)")
 
 st.markdown("""
 본 데모는 다음 파이프라인을 구현합니다.
-1) CSV 업로드(데이터 수집/전처리)
-2) 규칙 기반 분류(운영환경에서는 KoELECTRA로 교체)
-3) EWMA 이상치 탐지
-4) 키워드 기반 설명(운영환경에서는 LRP/IG 대체)
+
+1) **데이터 수집/전처리**: CSV 업로드 또는 샘플 사용  
+2) **규칙 기반 분류**: (운영환경에서는 KoELECTRA 등 모델로 교체 가능)  
+3) **EWMA 이상치 탐지**: 시간 버킷별 이슈 빈도 기반 경보  
+4) **설명 가능성(간이)**: 키워드 가중치 기반 단어 중요도 하이라이트  
 """)
 
-uploaded = st.file_uploader("CSV 파일을 업로드하거나 샘플을 사용하세요.", type=["csv"])
-use_sample = st.checkbox("샘플 데이터 사용 (data/sample_game_posts.csv)", value=True)
+# -----------------------------------
+# 3.1 데이터 로드 & 전처리
+# -----------------------------------
+SAMPLE_PATH = "data/sample_game_posts_150_realistic.csv"
+st.subheader("① 데이터 로드 및 전처리")
+st.caption(f"샘플 데이터 사용 중: {SAMPLE_PATH}")
+df = load_data(SAMPLE_PATH)
 
-if use_sample:
-    path = "data/sample_game_posts.csv"
-    df = load_data(path)
-elif uploaded:
-    df = pd.read_csv(uploaded)
-    df = load_data(uploaded)
-else:
-    st.info("CSV를 업로드하거나 '샘플 데이터 사용'을 체크하세요.")
-    st.stop()
 
-st.subheader("① 데이터 미리보기")
-st.dataframe(df.head(10))
+# -----------------------------------
+# 3.2 규칙 기반 분류
+# -----------------------------------
+st.subheader("② 분류 실행 (규칙 기반)")
 
-st.subheader("② 분류 실행 (KoELECTRA 기반)")
-classifier = KoElectraClassifier()
-pred_df = df.copy()  # Initialize pred_df
-pred_df['electra_results'] = pred_df['text'].apply(classifier.classify)
-st.dataframe(pred_df[["id","title","electra_results","date"]].head(20))
+# classify_posts()는 각 게시글(text)에 대해 규칙 기반 분류를 수행합니다.
+# 내부적으로 config.py에 정의된 ISSUE_CATEGORIES, NEGATIVE_CUES, POSITIVE_CUES를 이용해
+# 게시글의 '문제 유형'과 '감정 경향(부정/긍정/중립)'을 판단합니다.
+#
+# 함수 실행 결과에는 다음 3개의 주요 컬럼이 추가됩니다:
+#
+#   1️⃣ pred_categories : 탐지된 문제 유형(category) 리스트
+#        예) ["로그인"], ["결제"], ["일반"]
+#        - "일반"은 장애 관련 키워드가 발견되지 않은 경우
+#
+#   2️⃣ pred_sentiment : 문장의 감정 경향
+#        예) "부정", "중립", "긍정"
+#        - NEGATIVE_CUES 단어가 포함되면 "부정"
+#        - POSITIVE_CUES 단어가 포함되면 "긍정"
+#        - 둘 다 없으면 "중립"
+#
+#   3️⃣ is_issue : 실제 '이슈 게시글'로 간주되는지 여부 (True/False)
+#        - 조건: pred_sentiment == "부정" 이면서 pred_categories != ["일반"]
+#        - 즉, 부정적인 감정을 가진 장애 관련 게시글만 True로 표시
+#
+# 이렇게 분류된 데이터는 이후 EWMA 이상치 탐지(3.3) 단계의 입력으로 사용됩니다.
+# 부정 게시글이 시간대별로 얼마나 발생했는지를 기반으로 이상 패턴을 감지하게 됩니다.
 
+
+pred_df = classify_posts(df)
+
+# 방어: is_issue 보장 (혹시 다른 버전의 classify_posts를 쓰더라도 안전하게)
+if "is_issue" not in pred_df.columns:
+    if {"pred_categories", "pred_sentiment"}.issubset(pred_df.columns):
+        pred_df["is_issue"] = pred_df["pred_sentiment"].eq("부정") & \
+                              pred_df["pred_categories"].apply(lambda x: x != ["일반"])
+    else:
+        st.error("분류 결과에 필요한 열이 없습니다. 'classify_posts()' 구현을 확인하세요.")
+        st.stop()
+
+# 결과 미리보기 (상위 30개)
+st.dataframe(pred_df[["id", "title", "pred_categories", "pred_sentiment", "is_issue", "date"]].head(30))
+
+# -----------------------------------
+# 💾 분류 결과 다운로드 버튼 추가
+# -----------------------------------
+import io
+
+# CSV 버전 (선택)
+st.download_button(
+    label="② 분류 결과 CSV 다운로드",
+    data=pred_df.to_csv(index=False).encode("utf-8-sig"),
+    file_name="classification_results.csv",
+    mime="text/csv",
+)
+
+# -----------------------------------
+# 3.3 EWMA 이상치 탐지
+# -----------------------------------
 st.subheader("③ EWMA 이상치 탐지")
-freq = st.selectbox("집계 주기", ["5min","10min","15min","30min","1H"], index=2)
+
+# EWMA(Exponentially Weighted Moving Average)는 시간 흐름에 따라
+# 최신 데이터에 더 큰 가중치를 주는 '지수가중 이동평균'입니다.
+# α(alpha)는 EWMA의 "민감도"를 조절하는 매개변수입니다.
+#
+#   • α ↓ (예: 0.1~0.3) → 오래된 데이터도 반영 → 곡선이 부드럽고 안정적
+#                       → 변화에 둔감하지만 노이즈에 강함
+#   • α ↑ (예: 0.5~0.9) → 최신 데이터 위주 반영 → 곡선이 민감하게 변동
+#                       → 변화에 즉각 반응하지만 거짓 경보 많음
+#
+# z-threshold(임계치)는 경보 발생 기준이 되는 z-score(표준편차 배수) 값입니다.
+#   • 임계치 ↓ (예: 1.5) → 작은 변화도 경보로 감지 (민감)
+#   • 임계치 ↑ (예: 3.0) → 큰 변화만 경보로 감지 (보수적)
+#
+# 따라서 두 값을 조합하여 다음과 같은 동작 특성을 조절할 수 있습니다:
+#   α=0.4~0.6, 임계치=2.0 → 권장값 (적당한 민감도와 안정성)
+#   α 높음 + 임계치 낮음  → 매우 빠르지만 거짓 경보 많음
+#   α 낮음 + 임계치 높음  → 느리지만 신뢰도 높은 경보만 탐지
+
+freq = st.selectbox("집계 주기", ["5min", "10min", "15min", "30min", "1H"], index=2)
 alpha = st.slider("EWMA α (smoothing)", 0.05, 0.9, 0.3, 0.05)
 zth = st.slider("임계치 (|z| ≥ 임계치 시 경보)", 1.0, 5.0, 2.0, 0.5)
-an = ewma_anomaly_detection(pred_df, freq=freq, alpha=alpha, z_thresh=zth)
 
-fig, ax = plt.subplots(figsize=(10,4))
-ax.plot(an.index, an["count"], label="count")
-ax.plot(an.index, an["ewma"], label="ewma")
-ax.scatter(an.index[an["alert"]], an["count"][an["alert"]], marker="o", s=60, label="ALERT")
-ax.set_title("Issue count vs EWMA")
-ax.legend()
-st.pyplot(fig)
+try:
+    an = ewma_anomaly_detection(pred_df, freq=freq, alpha=alpha, z_thresh=zth)
+except Exception as e:
+    st.error(f"이상치 탐지 중 오류: {e}")
+    st.stop()
 
-st.write(an.tail(20))
+if an.empty:
+    st.warning("집계 결과가 비어 있습니다. 기간/버킷 설정 또는 입력 데이터를 확인하세요.")
+else:
+    fig, ax = plt.subplots(figsize=(11, 4))
+    ax.plot(an.index, an["count"], label="count")
+    ax.plot(an.index, an["ewma"], label="ewma")
 
-# Add auto-trigger for explanations
-if an['alert'].any():
-    alert_times = an[an['alert']].index
-    st.subheader("④ 자동 LRP 설명 (경보 트리거)")
-    for t in alert_times:
-        keywords = aggregate_keywords(pred_df, t - pd.Timedelta(minutes=15), t)
-        st.write(f"기간 {t}: 상위 키워드 {keywords}")
+    alert_mask = an["alert"].fillna(False)
+    ax.scatter(an.index[alert_mask], an.loc[alert_mask, "count"], marker="o", s=60, label="ALERT")
 
+    ax.set_title("Issue count vs EWMA")
+    ax.legend()
+    fig.tight_layout()
+    st.pyplot(fig)
+
+    st.markdown("**최근 20개 버킷**")
+    st.dataframe(an.tail(20))
+
+    alerts_only = an[an["alert"].fillna(False)].copy()
+    st.markdown("**감지된 ALERT 목록**")
+    if alerts_only.empty:
+        st.info("감지된 ALERT가 없습니다.")
+    else:
+        alerts_view = alerts_only[["count", "ewma", "zscore"]].assign(ts=alerts_only.index)
+        st.dataframe(alerts_view.set_index("ts"))
+        st.download_button(
+            "ALERT CSV 다운로드",
+            alerts_only.to_csv().encode("utf-8-sig"),
+            file_name="alerts.csv",
+            mime="text/csv",
+        )
+
+# -----------------------------------
+# 3.4 설명 가능성 (키워드 가중치 기반)
+# -----------------------------------
 st.subheader("④ 설명(키워드 가중치 기반)")
+
+# 이 단계는 각 게시글의 문장 내에서 어떤 단어가 '이슈 탐지'에 영향을 주었는지를
+# 시각적으로 표시하는 간단한 Explainability(설명 가능성) 모듈입니다.
+#
+# 내부적으로 src/explain.py의 `word_importance()` 함수가 호출되며,
+# 그 함수는 다음 규칙으로 각 단어에 점수를 부여합니다:
+#
+#   1) ISSUE_CATEGORIES에 포함된 장애 키워드 발견 시 +1.0
+#   2) NEGATIVE_CUES(부정 단서)가 포함되면 +0.5
+#   3) POSITIVE_CUES(긍정 단서)가 포함되면 +0.3
+#
+# 이후 점수를 [0, 1] 범위로 정규화(normalization)하여
+# Streamlit 화면에서 단어별로 빨간 음영(red heatmap intensity)으로 표현합니다.
+#
+#  • 진하게 표시된 단어일수록 모델(혹은 규칙)이 '이 문장은 문제 상황이다'라고
+#    판단하는 데 기여한 비중이 큼
+#  • 이 PoC에서는 간단한 규칙 기반 방식이지만,
+#    실제 운영환경에서는 LRP(레이어별 관련성 전파, Layer-wise Relevance Propagation),
+#    Integrated Gradients 등의 딥러닝 기반 방법으로 대체 가능
+
+
 row_ix = st.number_input("설명을 볼 행 index 선택", min_value=0, max_value=len(pred_df)-1, value=0, step=1)
 text = pred_df.iloc[int(row_ix)]["text"]
 tokens, scores = word_importance(text)
@@ -71,12 +181,32 @@ tokens, scores = word_importance(text)
 def colorize(tokens, scores):
     html = []
     for t, s in zip(tokens, scores):
-        html.append(f'<span style="background-color: rgba(255,0,0,{s}); padding:2px; border-radius:3px; margin:1px;">{t}</span>')
+        html.append(
+            f"<span style='background-color: rgba(255,0,0,{s}); padding:2px; border-radius:3px; margin:1px;'>{t}</span>"
+        )
     return " ".join(html)
 
 st.markdown("**원문 텍스트**")
 st.write(text)
+
+# 📘 "간이 LRP 대체"란?
+#
+#  • LRP(Layer-wise Relevance Propagation)는 딥러닝 모델(BERT, KoELECTRA 등)의
+#    예측 결과가 입력의 어떤 단어(또는 특징)에서 기인했는지를 수학적으로 역추적하는
+#    설명 가능한 AI(Explainable AI) 기법이다.
+#
+#  • 본 PoC는 규칙 기반 분류 방식으로, 모델의 가중치(weight)가 존재하지 않기 때문에
+#    LRP 같은 수학적 역전파 방식은 사용할 수 없다.
+#
+#  • 대신 단어별로 간단한 가중치 규칙을 적용해 중요도를 계산하고,
+#    이를 색상 강도로 시각화하여 "딥러닝의 LRP 결과처럼 보이는"
+#    간이 형태의 설명 모듈로 구현하였다.
+#
+#  • 즉, "간이 LRP 대체"란 복잡한 딥러닝 설명 기법을
+#    규칙 기반 점수 계산으로 단순 대체한 버전임.
+#    (목적: PoC 단계에서 설명 가능성(Explainability) 개념을 시각적으로 확인)
+
 st.markdown("**단어 중요도 히트맵 (간이 LRP 대체)**", unsafe_allow_html=True)
 st.markdown(colorize(tokens, scores), unsafe_allow_html=True)
 
-st.success("PoC 완료: 3.1~3.4의 최소 기능 체인을 한 화면에서 확인할 수 있습니다.")
+st.success("✅ PoC 완료: 3.1~3.4 전체 기능 체인을 한 화면에서 확인할 수 있습니다.")

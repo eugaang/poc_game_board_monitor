@@ -1,9 +1,4 @@
 pandas==2.2.2
-  numpy==1.26.4
-  streamlit==1.37.1
-  matplotlib==3.8.4
-  konlpy==0.6.0  # 한국어 형태소 분석
-  transformers==4.35.2  # KoELECTRA 모델
-  torch==2.1.0  # PyTorch (transformers 의존)
-  selenium==4.15.2  # 웹 크롤링
-  JPype1==1.5.0  # konlpy Java 브릿지
+numpy==1.26.4
+streamlit==1.37.1
+matplotlib==3.8.4

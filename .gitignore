@@ -1,16 +1,45 @@
-# Ignore Python virtual environment
-poc_game_monitor/
-
-# Ignore Python cache files
+# Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Ignore Mac system files
+# Virtual Environment
+poc_game_monitor/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
+Thumbs.db
 
-# Ignore large/binary files
-*.pdf
-data/*_old.csv  # Old data backups
+# Streamlit
+.streamlit/secrets.toml
 
-# Ignore other unnecessary files (add more if needed)
+# Data (optional - uncomment if you don't want to commit data files)
+# data/*.csv
+# data/*.numbers
