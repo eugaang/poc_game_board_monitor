@@ -5,7 +5,7 @@
 ## 📋 주요 기능
 
 - **3.1 데이터 수집/전처리**: CSV 업로드 또는 샘플 데이터 사용
-- **3.2 분류**: 규칙 기반 이진/다중 속성 분류 (운영 환경에선 KoELECTRA로 교체 가능)
+- **3.2 하이브리드 분류**: 카테고리(규칙 기반) + 감정(**KoELECTRA** 사전학습 모델)
 - **3.3 EWMA 이상치 탐지**: 시간 버킷별 이슈 게시글 빈도 기반 경보 시스템
 - **3.4 설명 가능성**: 키워드 기반 단어 중요도 시각화 (운영환경에선 LRP/IG/SHAP로 교체 가능)
 
@@ -45,8 +45,15 @@ git push origin main
 
 ### 배포 시 주의사항
 - 샘플 데이터 파일(`data/sample_game_posts_150_realistic.csv`)이 저장소에 포함되어야 합니다
-- 무료 플랜은 리소스 제한이 있습니다 (1GB RAM, 1 CPU)
+- KoELECTRA 모델 로딩에 약 3-5초 소요됩니다 (최초 실행 시)
+- 무료 플랜 리소스 제한: 1GB RAM, 1 CPU (torch 사용으로 메모리 사용량 증가)
 - Private 저장소도 배포 가능합니다
+
+### KoELECTRA 모델 정보
+- **모델**: monologg/koelectra-base-v3-discriminator
+- **용도**: 한국어 텍스트 감정 분석 (부정/중립/긍정)
+- **장점**: 사전학습된 모델로 라벨링 데이터 없이 즉시 사용 가능
+- **처리 방식**: 하이브리드 (카테고리는 규칙, 감정은 KoELECTRA)
 
 ## 📁 프로젝트 구조
 
@@ -60,10 +67,12 @@ poc_game_board_monitor/
 ├── data/
 │   └── sample_game_posts_150_realistic.csv  # 샘플 데이터
 └── src/
-    ├── config.py            # 설정 및 키워드 정의
-    ├── pipeline.py          # 데이터 처리 파이프라인
-    ├── explain.py           # 설명 가능성 모듈
-    └── classifier.py        # 분류기 (현재 미사용)
+    ├── config.py                # 설정 및 키워드 정의
+    ├── pipeline.py              # 데이터 처리 파이프라인 (하이브리드 분류)
+    ├── koelectra_classifier.py  # 🆕 KoELECTRA 감정 분석 모듈
+    ├── explain.py               # 설명 가능성 모듈
+    ├── classifier.py            # (미사용: 향후 Full Fine-tuning용)
+    └── collector.py             # (미사용: 크롤링 모듈)
 ```
 
 ## 🛠️ 기술 스택
@@ -71,6 +80,8 @@ poc_game_board_monitor/
 - **Frontend**: Streamlit
 - **Data Processing**: Pandas, NumPy
 - **Visualization**: Matplotlib
+- **ML Model**: KoELECTRA (한국어 사전학습 모델)
+- **Deep Learning**: PyTorch, Transformers
 - **Deployment**: Streamlit Community Cloud
 
 ## 📊 데이터 형식

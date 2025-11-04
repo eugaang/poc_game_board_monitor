@@ -5,6 +5,20 @@ from typing import Tuple, List
 # from datetime import datetime   # 사용 안하면 제거
 from .config import ISSUE_CATEGORIES, NEGATIVE_CUES, POSITIVE_CUES, DEFAULT_THRESHOLD, ALPHA
 
+# KoELECTRA 감정 분석 모델 (선택적 로딩)
+USE_KOELECTRA = True  # True: KoELECTRA 사용, False: 규칙 기반 사용
+_sentiment_model = None
+
+if USE_KOELECTRA:
+    try:
+        from .koelectra_classifier import get_sentiment_classifier
+        _sentiment_model = get_sentiment_classifier()
+        print("✅ KoELECTRA 감정 분석 모듈 활성화")
+    except Exception as e:
+        print(f"⚠️ KoELECTRA 로딩 실패, 규칙 기반으로 대체: {e}")
+        USE_KOELECTRA = False
+        _sentiment_model = None
+
 # --- 작은 유틸: 매우 가벼운 정규화(한글/영문/숫자만 남기고 소문자) ---
 _word_re = re.compile(r"[가-힣a-z0-9]+")
 
@@ -53,31 +67,78 @@ def simple_preprocess(text: str) -> str:
 # 3.2 Rule-based Classification
 # -----------------------------
 def rule_based_labels(text: str) -> Tuple[List[str], str]:
+    """
+    하이브리드 분류: 카테고리(규칙) + 감정(KoELECTRA)
+    
+    Args:
+        text: 분석할 텍스트
+    
+    Returns:
+        (카테고리 리스트, 감정)
+        예: (["로그인", "결제"], "부정")
+    """
     norm = simple_preprocess(text)
     toks = _tokens(norm)  # 약식 토큰 리스트
     joined = " ".join(toks)
 
+    # 1️⃣ 카테고리 분류: 규칙 기반 (키워드 매칭)
     found = []
     for cat, kws in ISSUE_CATEGORIES.items():
-        # 부분일치(in) 허용: “결제에러남” 같은 케이스 대응
+        # 부분일치(in) 허용: "결제에러남" 같은 케이스 대응
         if any(kw in joined for kw in kws):
             found.append(cat)
-
-    negative = any(cue in joined for cue in NEGATIVE_CUES)
-    positive = any(cue in joined for cue in POSITIVE_CUES)
-    sentiment = "부정" if negative and not positive else ("긍정" if positive and not negative else "중립")
-    return (found if found else ["일반"]), sentiment
+    
+    categories = found if found else ["일반"]
+    
+    # 2️⃣ 감정 분석: KoELECTRA 또는 규칙 기반
+    if USE_KOELECTRA and _sentiment_model:
+        # KoELECTRA 모델 사용
+        sentiment = _sentiment_model.predict_sentiment(text)
+    else:
+        # 규칙 기반 (폴백)
+        negative = any(cue in joined for cue in NEGATIVE_CUES)
+        positive = any(cue in joined for cue in POSITIVE_CUES)
+        sentiment = "부정" if negative and not positive else ("긍정" if positive and not negative else "중립")
+    
+    return categories, sentiment
 
 def classify_posts(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    게시글 분류 (하이브리드 방식)
+    
+    - 카테고리: 규칙 기반 키워드 매칭
+    - 감정: KoELECTRA 사전학습 모델
+    - 이슈: 부정 감정 + 특정 카테고리
+    
+    Args:
+        df: 게시글 데이터프레임 (text 컬럼 필요)
+    
+    Returns:
+        분류 결과가 추가된 데이터프레임
+        - pred_categories: 카테고리 리스트
+        - pred_sentiment: 감정 (부정/중립/긍정)
+        - is_issue: 이슈 여부 (True/False)
+        - classification_method: 사용된 분류 방법
+    """
     cats, sentiments = [], []
+    
+    # 각 게시글 분류
     for t in df["text"]:
         c, s = rule_based_labels(t)
         cats.append(c)
         sentiments.append(s)
+    
     out = df.copy()
     out["pred_categories"] = cats
     out["pred_sentiment"] = sentiments
+    
+    # 이슈 판단: 부정 감정 + 특정 카테고리
     out["is_issue"] = out["pred_sentiment"].eq("부정") & out["pred_categories"].apply(lambda x: x != ["일반"])
+    
+    # 분류 방식 표시
+    classification_method = "Hybrid: Category(Rule-based) + Sentiment(KoELECTRA)" if USE_KOELECTRA else "Rule-based"
+    out["classification_method"] = classification_method
+    
     return out
 
 # -----------------------------

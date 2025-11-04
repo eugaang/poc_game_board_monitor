@@ -16,7 +16,7 @@ st.markdown("""
 본 데모는 다음 파이프라인을 구현합니다.
 
 1) **데이터 수집/전처리**: CSV 업로드 또는 샘플 사용  
-2) **규칙 기반 분류**: (운영환경에서는 KoELECTRA 등 모델로 교체 가능)  
+2) **🤖 하이브리드 분류**: 카테고리(규칙 기반) + 감정(KoELECTRA)  
 3) **EWMA 이상치 탐지**: 시간 버킷별 이슈 빈도 기반 경보  
 4) **설명 가능성(간이)**: 키워드 가중치 기반 단어 중요도 하이라이트  
 """)
@@ -33,11 +33,22 @@ df = load_data(SAMPLE_PATH)
 # -----------------------------------
 # 3.2 규칙 기반 분류
 # -----------------------------------
-st.subheader("② 분류 실행 (규칙 기반)")
+st.subheader("② 분류 실행 (하이브리드: 규칙 + KoELECTRA)")
 
-# classify_posts()는 각 게시글(text)에 대해 규칙 기반 분류를 수행합니다.
-# 내부적으로 config.py에 정의된 ISSUE_CATEGORIES, NEGATIVE_CUES, POSITIVE_CUES를 이용해
-# 게시글의 '문제 유형'과 '감정 경향(부정/긍정/중립)'을 판단합니다.
+st.info("""
+**🤖 KoELECTRA + 규칙 기반 하이브리드 분류**
+
+- **카테고리 분류** (로그인, 결제, 렉 등): 규칙 기반 키워드 매칭  
+- **감정 분석** (부정/중립/긍정): **KoELECTRA 사전학습 모델** 사용  
+- **이슈 판단**: 부정 감정 + 특정 카테고리 → 이슈
+
+📊 프로젝트 사전보고서에 명시된 **KoELECTRA를 실제 적용**한 구현입니다.
+""")
+
+# classify_posts()는 각 게시글(text)에 대해 하이브리드 분류를 수행합니다.
+# 
+# 🔹 카테고리 분류: config.py의 ISSUE_CATEGORIES 키워드로 규칙 기반 매칭
+# 🔹 감정 분석: KoELECTRA 모델을 사용하여 부정/중립/긍정 예측
 #
 # 함수 실행 결과에는 다음 3개의 주요 컬럼이 추가됩니다:
 #
@@ -45,11 +56,10 @@ st.subheader("② 분류 실행 (규칙 기반)")
 #        예) ["로그인"], ["결제"], ["일반"]
 #        - "일반"은 장애 관련 키워드가 발견되지 않은 경우
 #
-#   2️⃣ pred_sentiment : 문장의 감정 경향
+#   2️⃣ pred_sentiment : 문장의 감정 경향 (KoELECTRA 예측)
 #        예) "부정", "중립", "긍정"
-#        - NEGATIVE_CUES 단어가 포함되면 "부정"
-#        - POSITIVE_CUES 단어가 포함되면 "긍정"
-#        - 둘 다 없으면 "중립"
+#        - KoELECTRA 모델이 텍스트를 분석하여 감정을 예측
+#        - 사전학습된 한국어 ELECTRA 모델 활용
 #
 #   3️⃣ is_issue : 실제 '이슈 게시글'로 간주되는지 여부 (True/False)
 #        - 조건: pred_sentiment == "부정" 이면서 pred_categories != ["일반"]
@@ -71,7 +81,11 @@ if "is_issue" not in pred_df.columns:
         st.stop()
 
 # 결과 미리보기 (상위 30개)
-st.dataframe(pred_df[["id", "title", "pred_categories", "pred_sentiment", "is_issue", "date"]].head(30))
+# st.dataframe(pred_df[["id", "title", "pred_categories", "pred_sentiment", "is_issue", "date"]].head(30))
+st.dataframe(
+    pred_df[["id", "title", "pred_categories", "pred_sentiment", "is_issue", "date"]],
+    use_container_width=True
+)
 
 # -----------------------------------
 # 💾 분류 결과 다운로드 버튼 추가
@@ -134,8 +148,10 @@ else:
     fig.tight_layout()
     st.pyplot(fig)
 
-    st.markdown("**최근 20개 버킷**")
-    st.dataframe(an.tail(20))
+    # st.markdown("**최근 20개 버킷**")
+    # st.dataframe(an.tail(20))
+    st.markdown("**전체 버킷 (CSV 전체 기준)**")
+    st.dataframe(an, use_container_width=True)
 
     alerts_only = an[an["alert"].fillna(False)].copy()
     st.markdown("**감지된 ALERT 목록**")
