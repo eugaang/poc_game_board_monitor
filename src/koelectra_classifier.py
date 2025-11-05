@@ -16,23 +16,31 @@ class KoElectraSentimentClassifier:
     - 용도: 게임 커뮤니티 게시글의 감정 분석
     """
     
-    def __init__(self, model_name="monologg/koelectra-base-v3-discriminator"):
+    def __init__(self, model_name="./koelectra-game-sentiment", use_finetuned=True):
         """
         KoELECTRA 모델 초기화
         
         Args:
-            model_name: Hugging Face 모델 이름
+            model_name: 모델 경로 (로컬 또는 Hugging Face)
+            use_finetuned: Fine-tuned 모델 사용 여부
         """
-        print(f"🤖 KoELECTRA 모델 로딩 중: {model_name}")
+        # Fine-tuned 모델 사용 여부 결정
+        if use_finetuned:
+            # Fine-tuned 모델 경로 확인
+            import os
+            if os.path.exists("./koelectra-game-sentiment"):
+                model_name = "./koelectra-game-sentiment"
+                print(f"🌟 Fine-tuned KoELECTRA 모델 로딩 중: {model_name}")
+            else:
+                print(f"⚠️ Fine-tuned 모델을 찾을 수 없습니다. 사전학습 모델 사용")
+                model_name = "monologg/koelectra-base-v3-discriminator"
+                print(f"🤖 사전학습 KoELECTRA 모델 로딩 중: {model_name}")
+        else:
+            print(f"🤖 사전학습 KoELECTRA 모델 로딩 중: {model_name}")
         
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-            # 사전학습 모델을 3-class 분류용으로 활용 (부정/중립/긍정)
-            self.model = AutoModelForSequenceClassification.from_pretrained(
-                model_name,
-                num_labels=3,
-                problem_type="single_label_classification"
-            )
+            self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
             self.model.eval()  # 평가 모드로 설정
             
             # GPU 사용 가능하면 GPU로, 아니면 CPU

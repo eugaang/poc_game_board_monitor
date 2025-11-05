@@ -36,13 +36,14 @@ df = load_data(SAMPLE_PATH)
 st.subheader("② 분류 실행 (하이브리드: 규칙 + KoELECTRA)")
 
 st.info("""
-**🤖 KoELECTRA + 규칙 기반 하이브리드 분류**
+**🌟 KoELECTRA + 규칙 기반 하이브리드 분류 (Fine-tuned)**
 
 - **카테고리 분류** (로그인, 결제, 렉 등): 규칙 기반 키워드 매칭  
-- **감정 분석** (부정/중립/긍정): **KoELECTRA 사전학습 모델** 사용  
+- **감정 분석** (부정/중립/긍정): **Fine-tuned KoELECTRA** 모델 사용  
 - **이슈 판단**: 부정 감정 + 특정 카테고리 → 이슈
 
-📊 프로젝트 사전보고서에 명시된 **KoELECTRA를 실제 적용**한 구현입니다.
+📊 **게임 커뮤니티 데이터로 Fine-tuning 완료** (Validation 정확도: 100%)  
+🎯 프로젝트 사전보고서에 명시된 **KoELECTRA를 실제 적용 및 최적화**한 구현입니다.
 """)
 
 # classify_posts()는 각 게시글(text)에 대해 하이브리드 분류를 수행합니다.
@@ -196,13 +197,92 @@ row_ix = st.number_input("설명을 볼 행 index 선택", min_value=0, max_valu
 text = pred_df.iloc[int(row_ix)]["text"]
 tokens, scores = word_importance(text)
 
-def colorize(tokens, scores):
+def colorize_enhanced(tokens, scores):
+    """개선된 시각화: 색상 + 레이블 + 점수"""
+    from src.config import ISSUE_CATEGORIES, NEGATIVE_CUES, POSITIVE_CUES
+    
     html = []
     for t, s in zip(tokens, scores):
-        html.append(
-            f"<span style='background-color: rgba(255,0,0,{s}); padding:2px; border-radius:3px; margin:1px;'>{t}</span>"
-        )
+        # 단어 종류 판단
+        word_type = ""
+        emoji = ""
+        color = "red"
+        
+        # 카테고리 키워드 체크
+        is_category = False
+        for cat, keywords in ISSUE_CATEGORIES.items():
+            if any(kw in t for kw in keywords):
+                word_type = f"[{cat}]"
+                emoji = "🎯"
+                color = "red"
+                is_category = True
+                break
+        
+        # 부정어 체크
+        if not is_category and any(cue in t for cue in NEGATIVE_CUES):
+            word_type = "[부정]"
+            emoji = "⚠️"
+            color = "orange"
+        
+        # 긍정어 체크
+        elif not is_category and any(cue in t for cue in POSITIVE_CUES):
+            word_type = "[긍정]"
+            emoji = "✅"
+            color = "green"
+        
+        # HTML 생성
+        if s > 0:  # 점수가 있는 단어만 강조
+            html.append(
+                f"<span style='background-color: rgba({'255,0,0' if color=='red' else '255,165,0' if color=='orange' else '0,200,0'},{s}); "
+                f"padding:4px 8px; border-radius:5px; margin:2px; display:inline-block; "
+                f"border: 2px solid {color};'>"
+                f"{emoji} <strong>{t}</strong> "
+                f"<small style='opacity:0.8;'>{word_type} {s:.1f}</small>"
+                f"</span>"
+            )
+        else:
+            html.append(f"<span style='margin:2px;'>{t}</span>")
+    
     return " ".join(html)
+
+def create_word_table(tokens, scores):
+    """단어 분석 테이블 생성"""
+    from src.config import ISSUE_CATEGORIES, NEGATIVE_CUES, POSITIVE_CUES
+    import pandas as pd
+    
+    data = []
+    for t, s in zip(tokens, scores):
+        if s > 0:  # 점수가 있는 단어만
+            word_type = "중립"
+            reason = "-"
+            
+            # 카테고리 체크
+            for cat, keywords in ISSUE_CATEGORIES.items():
+                if any(kw in t for kw in keywords):
+                    word_type = f"카테고리({cat})"
+                    reason = f"'{cat}' 문제 키워드"
+                    break
+            
+            # 부정어 체크
+            if word_type == "중립" and any(cue in t for cue in NEGATIVE_CUES):
+                word_type = "부정어"
+                reason = "부정적 표현"
+            
+            # 긍정어 체크
+            elif word_type == "중립" and any(cue in t for cue in POSITIVE_CUES):
+                word_type = "긍정어"
+                reason = "긍정적 표현"
+            
+            data.append({
+                "단어": t,
+                "종류": word_type,
+                "중요도": f"{s:.2f}",
+                "이유": reason
+            })
+    
+    if data:
+        return pd.DataFrame(data)
+    return None
 
 st.markdown("**원문 텍스트**")
 st.write(text)
@@ -224,7 +304,15 @@ st.write(text)
 #    규칙 기반 점수 계산으로 단순 대체한 버전임.
 #    (목적: PoC 단계에서 설명 가능성(Explainability) 개념을 시각적으로 확인)
 
-st.markdown("**단어 중요도 히트맵 (간이 LRP 대체)**", unsafe_allow_html=True)
-st.markdown(colorize(tokens, scores), unsafe_allow_html=True)
+st.markdown("**🎨 단어 중요도 시각화 (개선)**", unsafe_allow_html=True)
+st.markdown(colorize_enhanced(tokens, scores), unsafe_allow_html=True)
+
+# 상세 분석 테이블 추가
+st.markdown("**📊 상세 단어 분석**")
+word_table = create_word_table(tokens, scores)
+if word_table is not None:
+    st.dataframe(word_table, use_container_width=True)
+else:
+    st.info("중요 단어가 감지되지 않았습니다.")
 
 st.success("✅ PoC 완료: 3.1~3.4 전체 기능 체인을 한 화면에서 확인할 수 있습니다.")

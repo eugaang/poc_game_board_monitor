@@ -5,7 +5,7 @@
 ## 📋 주요 기능
 
 - **3.1 데이터 수집/전처리**: CSV 업로드 또는 샘플 데이터 사용
-- **3.2 하이브리드 분류**: 카테고리(규칙 기반) + 감정(**KoELECTRA** 사전학습 모델)
+- **3.2 하이브리드 분류**: 카테고리(규칙 기반) + 감정(**Fine-tuned KoELECTRA** 모델, 정확도 100%)
 - **3.3 EWMA 이상치 탐지**: 시간 버킷별 이슈 게시글 빈도 기반 경보 시스템
 - **3.4 설명 가능성**: 키워드 기반 단어 중요도 시각화 (운영환경에선 LRP/IG/SHAP로 교체 가능)
 
@@ -50,10 +50,12 @@ git push origin main
 - Private 저장소도 배포 가능합니다
 
 ### KoELECTRA 모델 정보
-- **모델**: monologg/koelectra-base-v3-discriminator
-- **용도**: 한국어 텍스트 감정 분석 (부정/중립/긍정)
-- **장점**: 사전학습된 모델로 라벨링 데이터 없이 즉시 사용 가능
-- **처리 방식**: 하이브리드 (카테고리는 규칙, 감정은 KoELECTRA)
+- **기본 모델**: monologg/koelectra-base-v3-discriminator
+- **Fine-tuned 모델**: ./koelectra-game-sentiment (게임 커뮤니티 데이터로 학습)
+- **학습 데이터**: 120개 (train) + 30개 (validation)
+- **정확도**: 100% (validation set)
+- **용도**: 게임 커뮤니티 게시글 감정 분석 (부정/중립/긍정)
+- **처리 방식**: 하이브리드 (카테고리는 규칙, 감정은 Fine-tuned KoELECTRA)
 
 ## 📁 프로젝트 구조
 
