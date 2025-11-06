@@ -67,7 +67,7 @@ poc_game_board_monitor/
 ├── .streamlit/
 │   └── config.toml          # Streamlit 설정
 ├── data/
-│   └── sample_game_posts_150_realistic.csv  # 샘플 데이터
+│   └── sample_game_posts_100_realistic.csv  # 샘플 데이터
 └── src/
     ├── config.py                # 설정 및 키워드 정의
     ├── pipeline.py              # 데이터 처리 파이프라인 (하이브리드 분류)
