@@ -11,5 +11,5 @@ ISSUE_CATEGORIES = {
 
 NEGATIVE_CUES = ["안 돼", "안돼", "안", "오류", "문제", "않", "에러", "멈춤", "사라졌", "끊겨", "느려", "못"]
 POSITIVE_CUES = ["해결", "정상", "잘 됩니다", "감사"]
-DEFAULT_THRESHOLD = 2  # EWMA 경보 기본 임계치(표준편차 배수 개념으로 사용)
-ALPHA = 0.3  # EWMA smoothing factor
+DEFAULT_THRESHOLD = 2.0  # EWMA 경보 기본 임계치(표준편차 배수 개념으로 사용)
+ALPHA = 0.5  # EWMA smoothing factor (높을수록 빠르게 반응, 연속 버스트 감지 개선)

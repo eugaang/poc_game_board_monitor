@@ -165,8 +165,9 @@ def ewma_anomaly_detection(
     resid = counts - ewma
 
     # 표준편차: 최소 창 크기와 하한(ε) 설정
-    window = max(3, int(round(1/alpha)))  # alpha 작을수록 창 크게
-    std = resid.rolling(window=window, min_periods=max(3, window//2)).std()
+    # window = max(3, int(round(1/alpha)))  # alpha 작을수록 창 크게
+    window = 5  # 고정 윈도우 (연속 버스트 감지 개선)
+    std = resid.rolling(window=window, min_periods=3).std()
     # 1차 보정: NaN 채우기
     global_std = resid.std(ddof=0)
     if not np.isfinite(global_std) or global_std == 0:

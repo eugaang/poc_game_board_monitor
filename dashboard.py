@@ -5,6 +5,7 @@ matplotlib.use('Agg')  # Streamlit Cloud용 백엔드 설정
 import matplotlib.pyplot as plt
 from src.pipeline import load_data, classify_posts, ewma_anomaly_detection
 from src.explain import word_importance
+from src.config import DEFAULT_THRESHOLD, ALPHA
 
 # -----------------------------------
 # Page setup
@@ -24,7 +25,7 @@ st.markdown("""
 # -----------------------------------
 # 3.1 데이터 로드 & 전처리
 # -----------------------------------
-SAMPLE_PATH = "data/sample_game_posts_150_realistic.csv"
+SAMPLE_PATH = "data/sample_game_posts_100_realistic.csv"
 st.subheader("① 데이터 로드 및 전처리")
 st.caption(f"샘플 데이터 사용 중: {SAMPLE_PATH}")
 df = load_data(SAMPLE_PATH)
@@ -125,8 +126,8 @@ st.subheader("③ EWMA 이상치 탐지")
 #   α 낮음 + 임계치 높음  → 느리지만 신뢰도 높은 경보만 탐지
 
 freq = st.selectbox("집계 주기", ["5min", "10min", "15min", "30min", "1H"], index=2)
-alpha = st.slider("EWMA α (smoothing)", 0.05, 0.9, 0.3, 0.05)
-zth = st.slider("임계치 (|z| ≥ 임계치 시 경보)", 1.0, 5.0, 2.0, 0.5)
+alpha = st.slider("EWMA α (smoothing)", 0.05, 0.9, ALPHA, 0.05)
+zth = st.slider("임계치 (|z| ≥ 임계치 시 경보)", 1.0, 5.0, DEFAULT_THRESHOLD, 0.5)
 
 try:
     an = ewma_anomaly_detection(pred_df, freq=freq, alpha=alpha, z_thresh=zth)
